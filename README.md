@@ -1,7 +1,7 @@
 # sshKeyGen
 automation of ssh key generation with associated hostname platform status and email
 
-# registerOnPlatform.md
+# register on a git platform
 
 ## Register SSH key
 
