@@ -176,7 +176,7 @@ PLATFORM=$(echo "$PLATFORM" | tr '[:upper:]' '[:lower:]')
 # Validate platform
 # ----------------------------------------------------------------------------
 
-if [[ "$PLATFORM" != "github" && "$PLATFORM" != "gitlab" && -n "$PLATFORM" ]]; then
+if [[ "$PLATFORM" != "github" && "$PLATFORM" != "codeberg" && "$PLATFORM" != "gitlab" && -n "$PLATFORM" ]]; then
 
     echo ""
     echo "ERROR: unsupported PLATFORM."
@@ -184,6 +184,7 @@ if [[ "$PLATFORM" != "github" && "$PLATFORM" != "gitlab" && -n "$PLATFORM" ]]; t
     echo "Supported values:"
     echo "  github"
     echo "  gitlab"
+    echo "  codeberg"
     echo ""
     exit 1
 
