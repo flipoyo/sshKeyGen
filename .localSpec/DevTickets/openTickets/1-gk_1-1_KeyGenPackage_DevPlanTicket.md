@@ -1,6 +1,8 @@
-# KeyGenPackage — `gk`, a monolithic Python class with a passphrase-by-declaration
+# KeyGenPackage — `gk`, one class that makes a user's ssh keys on any machine, and that atCGS can use
 
 *Created: 2026-11-05*
+
+*Revised: 2026-11-05 — made compatible with atCGS 1.7.1-alpha*
 
 *Branch: 1-gk*
 
@@ -9,164 +11,205 @@
 ## Abstract — read this first
 
 **The one-line version.** Replace `genkey.sh` with one Python class, shipped as
-the package `gk` under SemVer, whose methods other programs can call — and make
-the private-key passphrase something the user *declares*, not something they
-type into `ssh-keygen` each time.
+the package `gk`, that turns *one login and one password* into the same
+identity on any machine — and let [atCGS](https://github.com/flipoyo/atCGS)
+use that same class instead of keeping its own copy.
 
 **What this document is.** A ticket. Nothing here has been built.
 
-**Why it exists.** Today sshKeyGen is a 300-line Bash script and a 190-line
-README. Neither can be imported by another program, and the README mixes a
-one-command tool with a general Git/SSH tutorial. The issue asks for two
-things at once: a **UX** target (README of 100 lines at most, straightforward)
-and a **SECURITY** target (the private key is protected by a passphrase derived
-from a declared secret). The class is also meant to be absorbed later by
-[atCGS](https://github.com/flipoyo/atCGS), which already owns an identity layer
-(Argon2id, Ed25519, ssh keys held in a private agent).
+**Why it exists.** The issue asks for a UX target (README of 100 lines at most)
+and a security target (the private key is protected by a passphrase derived from
+a declared secret). Reading atCGS changes the question. atCGS already derives a
+user's identity from login and password (Argon2id, Ed25519), stores nothing,
+and keeps each user's ssh keys in an encrypted GLYPH. If `gk` invents a second
+derivation, one person ends up with two identities that never match. So `gk`
+reuses atCGS's derivation byte for byte, and becomes the one place where it lives.
 
-**What you will find.** §1 what exists. §2 the target shape. §3 decisions —
-the passphrase derivation is the one that matters. §4 work packages. §5
-acceptance. §6 integration into atCGS.
+**What you will find.** §1 what exists on both sides. §2 the compatibility
+contract. §3 the target class. §4 decisions. §5 work packages. §6 acceptance.
+§7 what is left to atCGS.
 
-**Who it is for.** Whoever implements it, and the owner, who answers §3.
+**Who it is for.** Whoever implements it, and the owner, who answers §4.
 
-**What you need to do with it.** Answer §3, then work §4 in order.
+**What you need to do with it.** Answer §4, then work §5 in order.
 
 ```mermaid
 graph TD
-    SH["genkey.sh<br/>today"] -->|rewritten as| PKG["gk — KeyGen class<br/>YOU ARE HERE"]
-    PKG -->|"gk CLI (thin wrapper)"| USER["a person at a terminal"]
-    PKG -->|"class method API"| ATCGS["atCGS identity layer<br/>(later)"]
-    ISSUE["issue #1"] -->|requests| PKG
+    SH["genkey.sh<br/>today"] -->|rewritten as| GK["gk — KeyGen class<br/>YOU ARE HERE"]
+    GK -->|"gk command"| USER["one user, any machine<br/>keys in ~/.ssh"]
+    GK -->|"class API, in memory"| AT["atCGS<br/>identity, GLYPH, session"]
+    AT -.->|"later: imports gk,<br/>drops its copy"| GK
 
     classDef here fill:#1565C0,color:#fff,stroke:#111,stroke-width:2px;
-    class PKG here;
+    class GK here;
 ```
 
 ---
 
 ## 1. What exists
 
+### sshKeyGen (this repository)
+
 | Item | State |
 |---|---|
-| `genkey.sh EMAIL [PLATFORM] [HOSTNAME] [PROFILE]` | Generates `~/.ssh/id_ed25519[_platform][_host][_profile]`, adds it to ssh-agent, prints the public key and a config snippet |
-| Platforms | `github`, `gitlab`, `codeberg` accepted; only `github` and `gitlab` get a config snippet and registration URL — codeberg falls into the generic branch |
-| Passphrase | None set by the script; `ssh-keygen` prompts interactively, and an empty answer is accepted |
-| Overwrite guard | Present: refuses if the key file exists |
-| `README.md` | ~190 lines: the tool in two lines, then a general SSH/Git tutorial (config, agent, HTTPS→SSH, clone, push, failures) |
-| Packaging, tests, version | None |
+| `genkey.sh EMAIL [PLATFORM] [HOSTNAME] [PROFILE]` | Makes `~/.ssh/id_ed25519[_platform][_host][_profile]`, loads it into ssh-agent, prints the public key and a config snippet. Version `0.1.0` |
+| Platforms | `github`, `gitlab`, `codeberg` accepted; only the first two get a config snippet and URL |
+| Passphrase | None set; `ssh-keygen` prompts, and an empty answer is accepted |
+| Packaging, tests, CI | None. Bash and OpenSSH only, so no Windows |
 
-## 2. Target shape
+### atCGS 1.7.1-alpha (what `gk` must fit)
 
-**Name.** The issue says "Implement gk-SemVer": `gk` is the official command
-name, versioned by Semantic Versioning (start at `0.1.0`).
+| Item | State |
+|---|---|
+| Identity | `IDSEED = Argon2id(password, salt = "atCGS/id/v1/" + profile + "/" + login)`, 32 bytes, login and password NFC-normalised. Ed25519 key from the seed; `UID = sha256(public key)`. Nothing is stored |
+| KDF profiles | `real`: 256 MiB, 3 passes. `test`: 8 MiB, 1 pass, for CI. Env `ATCGS_KDF_PROFILE` |
+| ssh keys | `SshKey(repo, role, private)`: an unencrypted OpenSSH Ed25519 key, in memory only, generated at random |
+| GLYPH | 8 192 bytes at `~/.cgs/.glyph/<UID>.glyph`; holds the user's private ssh keys, sealed with `HKDF(IDSEED)` |
+| Session | Loads the keys into a private ssh-agent and offers each repo its own key, never `~/.ssh` (`-F /dev/null`) |
+| Stack | Python 3.11, `cryptography>=44`, Pixi (linux-64, win-64, osx-arm64), ruff, pytest. Version is SemVer 2.0.0 and must equal `atcgs.__version__` |
 
-**One monolithic class**, no module sprawl, so it can be vendored or imported
-whole:
+## 2. The compatibility contract
+
+Six rules. A change to any of them is a major version of `gk` and of atCGS together.
+
+| # | Rule | Why |
+|---|---|---|
+| C1 | `gk.derive(login, password, profile)` returns the same IDSEED as atCGS: same salt string (`atCGS/id/v1/<profile>/<login>`), same Argon2id parameters, same NFC normalisation | One person, one UID, in both tools |
+| C2 | The profile names are `real` and `test`, with atCGS's costs, and `ATCGS_KDF_PROFILE` is honoured | atCGS's test suite and `gk`'s can share one setting |
+| C3 | Every other secret `gk` needs is `HKDF(IDSEED, info = "gk/<purpose>/v1/…")`. The purposes are `passphrase` and `ssh`. Different info strings, so no derived value can stand in for another | A leaked ssh key must not reveal the IDSEED or the passphrase |
+| C4 | `gk` has an in-memory sink: `KeyGen` can return its keys as objects with `repo`, `role`, `private`, `public` — the shape of atCGS's `SshKey` — and touch no file | atCGS never writes to `~/.ssh` |
+| C5 | `gk` imports nothing from atCGS. atCGS imports `gk` later | The dependency has one direction |
+| C6 | A shared test-vector file (login, password, profile `test` → IDSEED, UID) is checked by both repositories | The only way two copies of a derivation stay identical |
+
+`gk` adds one dependency over atCGS's list, `bcrypt`, and only if the
+passphrase-protected key file is written by Python (see D2).
+
+## 3. The target class
+
+One module, one class, so it can be vendored whole.
 
 ```python
 from gk import KeyGen
 
-kg = KeyGen(email="me@x.org", platform="github", hostname="laptop", profile="pro")
-kg.key_path()          # Path, deterministic name, as today
-kg.generate(secret)    # creates the pair, protected by the derived passphrase
-kg.public_key()        # str
-kg.ssh_config()        # str, snippet for the platform
-kg.register_url()      # str, per platform
-kg.load_into_agent(secret)
+kg = KeyGen(login="me@x.org", password=secret, profile="real")   # derives once
+kg.uid                                                          # str, same as atCGS
+key = kg.ssh_key("github", "laptop", "pro")                     # SshKey-shaped, in memory
+kg.write(key, ssh_dir="~/.ssh")                                 # file + permissions + config snippet
+kg.load_into_agent(key)                                         # no file needed
+kg.glyph_add(key)                                               # seal into the GLYPH, atCGS-compatible
 ```
 
-The `gk` command is a thin argument parser over these methods and holds no
-logic of its own. File naming, platform table and permissions (700/600/644)
-carry over unchanged from `genkey.sh`.
+| Mode | What happens | Needs on a new machine |
+|---|---|---|
+| **random** (default) | A fresh Ed25519 key. The key file is encrypted with the passphrase `HKDF(IDSEED, "gk/passphrase/v1")` | login and password |
+| **derive** (opt in, `--derive`) | The key *is* `HKDF(IDSEED, "gk/ssh/v1/<platform>/<host>/<profile>/<n>")`; `n` is a counter that gives a new key when raised | login and password only; no file travels |
 
-**UX contract.** `README.md` is at most 100 lines, user-oriented: install, one
-command, register the key, test it. The general Git/SSH tutorial moves to
-`docs/` and the README links to it.
+Key naming, the platform table (with the missing codeberg snippet and URL),
+the overwrite guard and permissions (700/600/644) carry over from `genkey.sh`.
+The `gk` command is a thin parser over the class and holds no logic.
 
-**SECURITY contract.** The command is *decorated* with the declaration that the
-key holds a private password: the user states a secret once, and
-`sha256(secret)` is the private key's passphrase (see D1 before building this).
+**UX contract.** `README.md` is at most 100 lines: install, one command,
+register the key, test it. The Git/SSH tutorial already lives in
+`docs/ssh-git-guide.md`.
 
-## 3. Decisions — your call
+## 4. Decisions — your call
 
-### D1. Is a bare `sha256(password)` acceptable as the passphrase?
+### D1. What is the passphrase?
 
-The issue specifies it. It has three weaknesses, and the first is serious:
-
-| Problem | Why it matters |
-|---|---|
-| SHA-256 is fast and unsalted | Anyone holding the private key file can test password guesses at billions per second, and the same password gives the same passphrase on every machine. The key's own bcrypt KDF only protects the *passphrase*, which here is itself a cheap function of a weak secret |
-| Passphrase on the command line | `ssh-keygen -N <pass>` exposes it in `ps` and shell history |
-| Hex digest as passphrase | Fine as a string, but adds no entropy the password did not already have |
+The issue says `sha256(password)`. That is a fast, unsalted hash: anyone who
+holds the key file can test guesses at billions per second, and the same
+password gives the same passphrase everywhere.
 
 | Option | What happens |
 |---|---|
-| **Argon2id(secret, salt) → passphrase** (recommended) | Same declared-secret UX; a slow, salted KDF. Matches the Argon2id identity key atCGS already derives, so the two compose rather than conflict |
-| `sha256(secret)` exactly as written | Meets the issue literally; accept the weakness knowingly and document it in the README |
-| `sha256` now, KDF selectable later | Ship `kdf = "sha256"` as a versioned parameter so moving to Argon2id is a minor release, not a break |
+| **`HKDF(IDSEED, "gk/passphrase/v1")`** (recommended) | The declared secret goes through atCGS's Argon2id, so a guess costs 256 MiB and about a second. Same UX: the user types one password. Meets the issue's intent, not its letter |
+| `sha256(password)` as written | Meets the issue literally; document the weakness in the README |
 
-Whichever wins, the derivation is a named, versioned function in the class,
-because anyone who regenerates the passphrase later needs the same one.
+### D2. How is the encrypted key file written?
 
-### D2. How does the passphrase reach `ssh-keygen`?
+Never by putting the passphrase on the `ssh-keygen` command line (visible in `ps`).
 
-Never as an argument. Either `SSH_ASKPASS` with a private pipe/env, or generate
-the OpenSSH key in-process and write it encrypted. The first keeps a single
-runtime dependency on OpenSSH; the second adds a Python crypto dependency
-(`cryptography`, plus `argon2-cffi` if D1 picks Argon2id).
+| Option | What happens |
+|---|---|
+| **In Python** (recommended) | `cryptography` writes the OpenSSH key, encrypted. Adds `bcrypt` as a dependency; confirm in WP-K4 that the installed `cryptography` version needs it. Also the only route that works the same on Windows |
+| `ssh-keygen` through `SSH_ASKPASS` | Keeps OpenSSH as the only crypto, but needs a helper script and breaks on Windows |
 
-### D3. Where does the secret come from?
+### D3. Is *derive* mode allowed, and is it the default?
 
-Prompt with `getpass` by default; accept an environment variable or file
-descriptor for scripted use (and for atCGS). Never a positional argument.
-Confirm: is an empty secret an error? Recommendation: yes.
+In derive mode the ssh public key — which is public on GitHub — is also a check
+on the password: anyone can test guesses against it offline, at the Argon2id
+cost. atCGS already accepts this for its identity (the UID sits in a journal),
+so the trade is the same, but here it is the user's login on a public
+platform. Mitigation: the `real` profile only, and a refusal below a minimum
+password length (suggest 16 characters).
 
-### D4. Fate of `genkey.sh`
+| Option | What happens |
+|---|---|
+| **Both modes, random is the default** (recommended) | Safe by default; `--derive` is the "random machine, nothing to carry" mode, chosen knowingly |
+| Derive only | Simplest story, weakest if a password is guessable |
+| Random only | No offline-guess risk from the public key; a new machine needs the GLYPH file or a new key |
 
-Delete, or keep as a one-line shim calling `gk`. Recommendation: keep the shim
-for one minor release, then remove.
+### D4. Where does the derivation live?
 
-### D5. Distribution
+C1 needs one source. Recommendation: `gk` owns it, atCGS imports it later
+(§7). Until then both hold a copy, guarded by C6. Confirm you want atCGS to
+depend on `gk` rather than the reverse.
 
-Package name `gk` may be taken on PyPI; check before promising `pipx install gk`.
-Fallback names (`sshkeygen-gk`) keep the command `gk`.
+### D5. Install path on a machine you do not own
 
-## 4. Work packages
+atCGS runs "under Pixi only". A random machine usually has Python and not Pixi.
+Recommendation: `gk` is one file plus `cryptography`, runnable with
+`pipx run gk` or `pip install gk`, and Pixi remains the contributor
+environment, the same split as ComplexGitSync's UserInstallPath ticket.
+
+### D6. Fate of `genkey.sh`, and the PyPI name
+
+Keep a one-line shim for one release, then delete it. Check that `gk` is free on
+PyPI before promising `pipx install gk`; if not, publish under another name and
+keep the command `gk`.
+
+## 5. Work packages
 
 | WP | Depends on | Touches | Deliverable |
 |---|---|---|---|
-| **WP-K1** | D1, D2, D3 | — | Decisions recorded in this ticket |
-| **WP-K2** | — | `pyproject.toml`, `src/gk/` | Package skeleton, `version = "0.1.0"`, console script `gk` |
-| **WP-K3** | WP-K2 | `src/gk/keygen.py` | `KeyGen` class: naming, platform table (incl. codeberg snippet and URL), overwrite guard, permissions |
-| **WP-K4** | WP-K1, WP-K3 | `src/gk/keygen.py` | Passphrase derivation per D1, delivery per D2, secret intake per D3, agent loading |
-| **WP-K5** | WP-K3 | `src/gk/cli.py` | Thin CLI over the class; `gk --version` |
-| **WP-K6** | WP-K3, WP-K4 | `tests/` | Tests in a temporary `$HOME`: naming, refusal to overwrite, 600/644 modes, key is encrypted, derivation vectors, secret never in argv |
-| **WP-K7** | WP-K5 | `README.md`, `docs/` | README ≤ 100 lines; tutorial moved to `docs/ssh-git-guide.md` |
-| **WP-K8** | WP-K5, D4 | `genkey.sh` | Shim or removal |
+| **WP-K1** | — | this ticket | D1–D6 recorded |
+| **WP-K2** | — | `pixi.toml`, `pyproject.toml`, `ruff.toml`, `src/gk/` | Skeleton to the atCGS standard: Python 3.11, `cryptography>=44`, platforms linux-64/win-64/osx-arm64, `pixi run test` and `pixi run lint`. Version `0.2.0`, in one place, equal to `gk.__version__` |
+| **WP-K3** | WP-K2 | `src/gk/keygen.py` | `KeyGen`: naming, platform table (with codeberg), overwrite guard, permissions, config snippet |
+| **WP-K4** | WP-K1, WP-K3 | `src/gk/keygen.py` | `derive` (C1, C2), HKDF purposes (C3), the two modes, encrypted key file (D2), `load_into_agent` |
+| **WP-K5** | WP-K4 | `src/gk/keygen.py`, `tests/vectors.toml` | `SshKey`-shaped output (C4) and the shared test-vector file (C6) |
+| **WP-K6** | WP-K4 | `src/gk/keygen.py` | `glyph_add`: seal keys into a GLYPH that atCGS opens. Needs only the `CGSG` layout from atCGS's README § 6 |
+| **WP-K7** | WP-K3 | `src/gk/cli.py` | Thin `gk` command; the secret comes from `getpass`, an env var or a file descriptor, never an argument; empty is an error |
+| **WP-K8** | WP-K4 to WP-K7 | `tests/` | In a temporary `$HOME` and a private ssh-agent, so the suite never touches the real one: naming, no overwrite, modes, key is encrypted, same vector gives the same UID, derive mode is repeatable, the secret is in no argv |
+| **WP-K9** | WP-K7 | `README.md`, `docs/`, `CHANGELOG.md` | README ≤ 100 lines, a "new machine" tutorial, a short compatibility note linking atCGS |
+| **WP-K10** | WP-K7, D6 | `genkey.sh` | The shim or its removal |
+| **WP-K11** | WP-K8 | `.github/workflows/` | CI on the three Pixi platforms |
 
-## 5. Acceptance
+## 6. Acceptance
 
-- `gk me@x.org github laptop pro` produces `~/.ssh/id_ed25519_github_laptop_pro`
-  and `.pub`, exactly as `genkey.sh` did, and refuses to overwrite.
-- The private key is encrypted; `ssh-keygen -y -f <key>` fails without the
+- `gk me@x.org github laptop pro` makes `~/.ssh/id_ed25519_github_laptop_pro`
+  and `.pub` as `genkey.sh` did, and refuses to overwrite.
+- The private key file is encrypted: `ssh-keygen -y -f <key>` fails without the
   passphrase and succeeds with the derived one.
-- The secret appears in no process argument list and no log output.
-- `from gk import KeyGen` works in a clean environment and every §2 method is
-  callable without a terminal.
-- `wc -l README.md` ≤ 100, and the README alone takes a new user from install
-  to a tested `ssh -T` connection.
-- `gk --version` prints a SemVer string; tests pass.
+- The same login and password give the same UID in `gk` and in atCGS, checked
+  against `tests/vectors.toml` in both repositories.
+- With `--derive`, two machines given the same login, password, platform, host,
+  profile and counter produce byte-identical keys; changing the counter changes the key.
+- A GLYPH written by `gk` opens in atCGS (`atcgs.glyph.open_glyph`) and the keys
+  match.
+- The secret appears in no process argument list and no log.
+- `from gk import KeyGen` works in a clean environment, and every method in §3
+  runs with no terminal.
+- `wc -l README.md` ≤ 100; `gk --version` prints a SemVer string; `pixi run lint`
+  and `pixi run test` pass on the three platforms.
 
-## 6. Integration into atCGS (later, not in scope)
+## 7. What is left to atCGS (not in this ticket)
 
-atCGS keeps users' ssh keys in a private agent and never in `~/.ssh`. The class
-already separates *derive*, *generate* and *load*, so atCGS can call
-`generate` with its own secret and a target directory, and skip the `~/.ssh`
-side effects. That implies one parameter to reserve now: an optional
-`ssh_dir` on `KeyGen`, defaulting to `~/.ssh`. Whether the passphrase scheme
-should be shared with atCGS's Argon2id identity key is the real coupling —
-settle it through D1 so the two do not diverge.
+- Replace `atcgs/identity.py`'s `derive` and `SshKey.generate` with imports from
+  `gk`, keeping C6's vectors as the guard.
+- Add a row to `spec/contracts.toml` pinning the `gk` version it needs.
+- Decide whether `request` should accept keys made by `gk` (random or derived)
+  instead of generating its own.
+- Open a ticket in atCGS referencing this one.
 
-**Not in this ticket.** Key rotation, revocation, registering the key through
-platform APIs, and any change to atCGS itself.
+**Not in this ticket.** Key rotation and revocation, registering keys through
+platform APIs (atCGS's `deploy-keys` covers GitHub), and any change to atCGS itself.
