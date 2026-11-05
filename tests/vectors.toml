@@ -1,0 +1,17 @@
+# Shared test vectors (ticket rule C6). atCGS must derive the same IDSEED and UID.
+# Profile 'test' only: the 'real' profile needs 256 MiB. Never use these as real credentials.
+
+[[vector]]
+login = "me@x.org"
+password = "correct horse battery staple 42"
+profile = "test"
+idseed = "201bb4a270fd696edd43a743cf48bbf22f300218bdfa5651f5d7e53d721008ac"
+uid = "6911b9fc526a11e82e6d16f63b92fc74c3601c3e88a3766cc825a247e35d20a9"
+
+[[vector]]
+login = "Zoë.Müller@exämple.org"
+password = "pässwörd-with-ünïcode-chars-1234"
+profile = "test"
+idseed = "d164a1a00de27dd310fcd0e0429129099135b65fe336d21a170aa7e63ed0c138"
+uid = "b416207eb44558393b4a3a875f1b8d58b6a14a97aff3d55309eac3e850ffe667"
+

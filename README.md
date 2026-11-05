@@ -1,71 +1,66 @@
-# sshKeyGen v0.1.0
+# gk v0.2.0
 
 *Created: 2026-10-30*
 
-One command makes a named SSH key for a Git platform, loads it into your agent,
-and tells you where to register it.
+One login and one password give you the same ssh identity on any machine. `gk` makes
+named keys for GitHub, GitLab or Codeberg, keeps them in an encrypted file (the GLYPH),
+and works with [atCGS](https://github.com/flipoyo/atCGS).
 
 ```mermaid
 flowchart LR
-    A["./genkey.sh<br/>email platform host profile"] --> B["~/.ssh/id_ed25519_…<br/>key pair, agent-loaded"]
-    B --> C["paste the public key<br/>on the platform"]
-    C --> D["ssh -T git@…<br/>works"]
+    A["login + password"] --> B["GLYPH<br/>8 KB, encrypted"]
+    B -->|gk load| C["ssh-agent<br/>nothing on disk"]
+    B -->|gk export| D["~/.ssh/id_ed25519_…"]
+    B -.->|same format| E["atCGS"]
 ```
 
-## 1. Make a key
+## 1. Install
 
-Needs Bash and OpenSSH. Clone, then run from the repository root:
+Needs Python 3.11+ and OpenSSH. Anywhere: `pip install git+https://github.com/flipoyo/sshKeyGen`
+(or `pipx`). Contributors use [Pixi](https://pixi.sh): `pixi install`, then `pixi run gk --help`.
+
+## 2. Make a key
 
 ```bash
-./genkey.sh EMAIL [PLATFORM] [HOSTNAME] [PROFILE]
+gk EMAIL [PLATFORM] [HOSTNAME] [PROFILE]     # gk me@x.org github laptop pro
 ```
 
-| Argument | Meaning | Example |
-|---|---|---|
-| `EMAIL` | required; written in the key as its comment | `me@x.org` |
-| `PLATFORM` | `github`, `gitlab` or `codeberg`; leave empty for a generic key | `github` |
-| `HOSTNAME` | the machine this key lives on | `laptop` |
-| `PROFILE` | which identity: `perso`, `pro`, `admin`… | `pro` |
+`PLATFORM` is `github`, `gitlab` or `codeberg` (empty for a generic key). The key is named
+`id_ed25519_github_laptop_pro`. `gk` asks for your password twice, then:
 
-The key name is built from what you give:
+1. seals the key in your GLYPH (`~/.cgs/.glyph/<uid>.glyph`);
+2. writes `~/.ssh/<key>` and `.pub`, as the old script did;
+3. loads the key into your ssh-agent and prints the config snippet and the registration link.
 
-```text
-./genkey.sh me@x.org github laptop pro   ->  ~/.ssh/id_ed25519_github_laptop_pro
-./genkey.sh me@x.org                     ->  ~/.ssh/id_ed25519
-```
+Passwords need 16+ characters. Prefer your own key-file passphrase? Add `--own-passphrase`
+(8+ characters, typed twice, never empty). Scripts: `--password-fd N`.
 
-Check the version with `./genkey.sh --version`. Versions follow
-[Semantic Versioning](https://semver.org); the number lives in `genkey.sh` and the README title.
+## 3. Tutorial: a machine you do not own
 
-Choose a passphrase when `ssh-keygen` asks. The script never overwrites an
-existing key; it stops instead.
+1. Bring your GLYPH file (8 KB) to `~/.cgs/.glyph/`, or make a new key with step 2.
+2. `eval "$(ssh-agent -s)"`
+3. `gk load me@x.org` puts your keys in the agent for an hour. Nothing is written to disk.
+4. `ssh -T git@github.com`. When you leave, `ssh-add -D`.
 
-## 2. Tutorial: first push to GitHub
+## 4. Commands
 
-1. Make the key: `./genkey.sh me@x.org github laptop pro`
-2. Copy the public key the script prints (it is also in `~/.ssh/<key>.pub`).
-3. Register it: GitHub → Settings → SSH and GPG keys → New SSH key.
-4. Append the printed `Host github.com` block to `~/.ssh/config`.
-5. Test: `ssh -T git@github.com` should answer `Hi <user>! You've successfully authenticated`.
-6. Use SSH remotes: `git clone git@github.com:<account>/<repo>.git`
+| Command | Does |
+|---|---|
+| `gk EMAIL [PLATFORM] [HOST] [PROFILE]` | make a key (GLYPH, `~/.ssh`, agent) |
+| `gk load EMAIL [NAME] [--lifetime S]` | GLYPH → agent, nothing on disk |
+| `gk export EMAIL NAME` | GLYPH → `~/.ssh/NAME` |
+| `gk passphrase EMAIL` | print the passphrase of exported key files (a secret) |
+| `gk list EMAIL` | list the GLYPH's keys |
 
-GitLab is the same, with `https://gitlab.com/-/user_settings/ssh_keys` and
-`ssh -T git@gitlab.com`.
+## 5. Good to know
 
-## 3. Good to know
-
-- **Codeberg** is accepted, but the script prints a generic config block and no
-  registration link. Use `Host codeberg.org` and register at Codeberg → Settings → SSH keys.
-- **One key per platform, machine and profile.** `IdentitiesOnly yes` in the config
-  stops the wrong key being offered.
-- **Never share the private key** (the file without `.pub`).
-- Wrong key or "repository not found": see the [troubleshooting guide](docs/ssh-git-guide.md#common-failures).
-
-## 4. Where to go next
-
-- [docs/ssh-git-guide.md](docs/ssh-git-guide.md) — config, agent, HTTPS → SSH, clone, push, failures.
-- Planned: a Python package `gk` with a class API and a passphrase derived from a declared secret
-  ([issue #1](https://github.com/flipoyo/sshKeyGen/issues/1)). Not implemented yet.
+- **Exported key files** are encrypted with a passphrase derived from your password.
+  `ssh-add` will ask for it: use `gk load` or `gk passphrase`, or export with `--own-passphrase`.
+- **The GLYPH is private.** Keep a copy, never put it in git. A stolen GLYPH is only as
+  safe as your password; make it long.
+- **Python API:** `from gk import KeyGen` ([ticket](.localSpec/DevTickets/openTickets/1-gk_1-1_KeyGenPackage_DevPlanTicket.md)).
+- The old `./genkey.sh` still works for one release. The SSH/Git reference is in
+  [docs/ssh-git-guide.md](docs/ssh-git-guide.md).
 
 ## Authorship
 

@@ -1,0 +1,22 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Only platforms the suite has been written for are claimed. Windows is not validated:
+# the tests use POSIX file modes and file-descriptor passing (ticket, D3-style rule).
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          locked: false
+      - run: pixi run lint
+      - run: pixi run test

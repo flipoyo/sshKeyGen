@@ -91,6 +91,29 @@ the right default. It does **not**:
 file were stolen tomorrow, would the password hold?* If not, change the password,
 not the code.
 
+## Implementation status — 2026-11-05
+
+Implemented on `1-gk` as `gk 0.2.0`. `pixi run lint` and `pixi run test` pass (43 tests, Linux, Python 3.11).
+Checked against atCGS's own code (`identity.derive`, `glyph.open_glyph`, `glyph.seal`): same IDSEED and UID for
+`tests/vectors.toml`, a GLYPH written by `gk` opens in atCGS, and one written by atCGS opens in `gk`.
+
+| WP | State |
+|---|---|
+| K1 decisions | D1 HKDF passphrase, D2 in Python, D3 no derive mode, D4 `gk` owns the derivation, D5 pip/pipx plus Pixi, D6 shim kept. D7 (classic `~/.ssh` result **and** `gk passphrase`) taken as the recommendation; not confirmed by the owner |
+| K2–K8, K10 | Done |
+| K9 | README (83 lines), `CHANGELOG.md` done |
+| K11 | `.github/workflows/ci.yml` written for Linux and macOS; **not run yet**. Windows is not claimed: the tests use POSIX modes and `pass_fds` |
+
+**Deviations from this ticket**
+
+- **S3, common-password list.** A short built-in list of 16+ character entries, not 10 000. At this length, the length rule is the real defence.
+- **S6 over WP-K7.** The password is read from `getpass` or `--password-fd` only; the env-var option in WP-K7 was dropped because S6 forbids an environment value.
+- **S4 spike.** `ssh-add -` reads a key from stdin with `-t`, confirmed on OpenSSH 10.2 (Linux). macOS and Windows are not confirmed.
+- **Windows.** File modes (S5) have no meaning there; the package is untested on it.
+- **The edit-time reminder** did not fire while this was implemented: Claude Code loads hooks at session start, so the hook added in the same session was inactive.
+
+**Still open:** run the CI once on GitHub; register the signing key; open the atCGS ticket (§7); decide whether to archive this ticket.
+
 ---
 
 ## 1. What exists

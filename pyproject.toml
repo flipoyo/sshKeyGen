@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gk"
+version = "0.2.0"  # SemVer 2.0.0; must equal gk.__version__ and pixi.toml
+description = "ssh keys from one login and one password, compatible with atCGS"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Nicolas Flipo" }]
+requires-python = ">=3.11"
+dependencies = ["cryptography>=44", "bcrypt>=4"]
+
+[project.urls]
+Repository = "https://github.com/flipoyo/sshKeyGen"
+Issues = "https://github.com/flipoyo/sshKeyGen/issues"
+
+[project.scripts]
+gk = "gk.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gk"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

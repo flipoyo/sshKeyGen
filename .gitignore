@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# gk
+*.glyph
+*.glyph.bak
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.pixi/
+dist/
