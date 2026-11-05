@@ -29,6 +29,7 @@ S1 GLYPH is the source of truth, ~/.ssh is an export    S5 GLYPH 0700/0600, neve
 S2 no derive mode in 0.2.0                              S6 secret never in argv, env, logs
 S3 password >= 16 chars, real KDF profile only          S7 lost GLYPH = revocation procedure
 S4 random machine: private agent, nothing on disk       S8 attacker tests (bit flip, wrong pw)
+S9 typed key-file passphrase: >= 8 chars, twice, never empty
 
 Answer before merging: if my GLYPH file were stolen tomorrow, would the password hold?
 

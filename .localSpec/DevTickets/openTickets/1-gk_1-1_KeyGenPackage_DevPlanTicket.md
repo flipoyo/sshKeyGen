@@ -73,7 +73,7 @@ the right default. It does **not**:
 - hide that you own a GLYPH, nor survive its loss (it is one file: keep a copy);
 - hold more than about fifteen keys (8 192 bytes).
 
-**The strategy.** Eight rules, each checked in §6.
+**The strategy.** Nine rules, each checked in §6.
 
 | # | Rule | How |
 |---|---|---|
@@ -85,8 +85,9 @@ the right default. It does **not**:
 | S6 | The secret never leaks | `getpass` or a file descriptor only; never argv, env value, log or exception text |
 | S7 | A lost GLYPH is a revocation procedure | The public keys on each platform are the list. `gk` prints it and the removal URLs |
 | S8 | Attacker tests | A flipped bit is refused; a wrong password is refused; no private key appears in the GLYPH bytes; two GLYPHs of the same user differ (fresh nonce) |
+| S9 | The classic passphrase prompt is forced | Wherever a person types a passphrase for a key file (`gk` creating or exporting a `~/.ssh` key, as `ssh-keygen` does today), it must be **at least 8 characters** and asked twice. Empty is refused, where `ssh-keygen` accepts it. This is the floor for a *key-file* passphrase; the GLYPH's master password stays at 16 (S3) |
 
-**Before you merge.** You can answer yes to S1 to S8, and to this: *if my GLYPH
+**Before you merge.** You can answer yes to S1 to S9, and to this: *if my GLYPH
 file were stolen tomorrow, would the password hold?* If not, change the password,
 not the code.
 
@@ -218,7 +219,7 @@ keep the command `gk`.
 | **WP-K4** | WP-K1, WP-K3 | `src/gk/keygen.py` | `derive` (C1, C2), HKDF purposes (C3), password policy (S3), encrypted key export (D2), `load_into_agent`. Spike first: confirm `ssh-add -` reads a key from stdin on the three platforms (S4) |
 | **WP-K5** | WP-K4 | `src/gk/keygen.py`, `tests/vectors.toml` | `SshKey`-shaped output (C4) and the shared test-vector file (C6) |
 | **WP-K6** | WP-K4 | `src/gk/keygen.py` | The GLYPH as the primary store (S1, S5): seal, open, add, `gk load`, `gk export`. Needs only the `CGSG` layout from atCGS's README § 6 |
-| **WP-K7** | WP-K3 | `src/gk/cli.py` | Thin `gk` command; the secret comes from `getpass`, an env var or a file descriptor, never an argument; empty is an error |
+| **WP-K7** | WP-K3 | `src/gk/cli.py` | Thin `gk` command; the secret comes from `getpass`, an env var or a file descriptor, never an argument; empty is an error; a key-file passphrase typed by a person is asked twice and refused below 8 characters (S9) |
 | **WP-K8** | WP-K4 to WP-K7 | `tests/` | In a temporary `$HOME` and a private ssh-agent, so the suite never touches the real one: naming, no overwrite, modes, key is encrypted, same vector gives the same UID, the S8 attacker cases, the secret is in no argv |
 | **WP-K9** | WP-K7 | `README.md`, `docs/`, `CHANGELOG.md` | README ≤ 100 lines, a "new machine" tutorial, a short compatibility note linking atCGS |
 | **WP-K10** | WP-K7, D6 | `genkey.sh` | The shim or its removal |
@@ -236,7 +237,7 @@ keep the command `gk`.
   match; a GLYPH written by atCGS opens in `gk`.
 - `gk load` leaves no private key on disk (checked by listing `$HOME` before and
   after) and the agent holds the key.
-- Security rules S1 to S8 each have a test or a documented check, and the
+- Security rules S1 to S9 each have a test or a documented check, and the
   question "if my GLYPH were stolen, would the password hold?" is answered in the PR.
 - The secret appears in no process argument list and no log.
 - `from gk import KeyGen` works in a clean environment, and every method in §3
