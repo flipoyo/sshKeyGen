@@ -3,5 +3,18 @@
     "allow": [
       "Bash(gh issue *)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/gk-security-reminder.py\""
+          }
+        ]
+      }
+    ]
   }
 }

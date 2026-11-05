@@ -46,6 +46,52 @@ graph TD
 
 ---
 
+## Security reminder — read this before you write any code
+
+**This section is shown as a confirmation pop-up the first time Claude Code
+edits `src/gk/`, `tests/` or `pyproject.toml` in a session** (hook:
+`.claude/hooks/gk-security-reminder.py`). It only fires for Claude Code; if you
+edit by hand, this section is the reminder.
+
+**The issue.** `gk` turns a password into key material. Whoever can *test* a
+password guess against something they hold can try billions of guesses offline.
+Every design choice below is about what that "something" is, and who can see it.
+
+| Where a guess can be tested | Who can see it | Verdict |
+|---|---|---|
+| The ssh **public** key (derive mode) | Everyone: it is on GitHub | Worst. Public data checks the password |
+| `sha256(password)` as the key passphrase | Whoever steals `~/.ssh/<key>` | Weak: fast, unsalted |
+| The **GLYPH** (authenticated encryption) | Whoever steals one private file | Acceptable: slow Argon2id, private file, per-login salt |
+
+**Why the GLYPH is the right answer, and what it does not solve.** The GLYPH
+moves the thing that checks the password from a public place (the public key) to
+a private file, and makes each guess cost Argon2id (256 MiB, 3 passes). It is
+the right default. It does **not**:
+
+- fix a weak password: a stolen GLYPH is still attackable offline, only slower;
+- protect a machine that is compromised while the GLYPH is open or the keys are in the agent;
+- hide that you own a GLYPH, nor survive its loss (it is one file: keep a copy);
+- hold more than about fifteen keys (8 192 bytes).
+
+**The strategy.** Eight rules, each checked in §6.
+
+| # | Rule | How |
+|---|---|---|
+| S1 | The GLYPH is the source of truth; `~/.ssh/<key>` is an optional export | `gk` generates into the GLYPH first. A key file is written only on request |
+| S2 | No derive mode in 0.2.0 | A derived key's public half would be a public check on the password. Deferred, not cancelled (D3) |
+| S3 | Password policy | At least 16 characters, refuse the 10 000 most common, `real` profile only. The `test` profile needs an explicit env var and prints a warning |
+| S4 | Nothing on disk on a machine you do not own | `gk load` reads the GLYPH, pipes keys to a private ssh-agent and never writes them (`ssh-add -` from stdin; confirm in the WP-K4 spike), with `ssh-add -t` as a time limit |
+| S5 | GLYPH hygiene | Directory 0700, file 0600, atomic write, never in a git repository (`*.glyph` in `.gitignore` and a refusal to write inside a work tree), one backup copy |
+| S6 | The secret never leaks | `getpass` or a file descriptor only; never argv, env value, log or exception text |
+| S7 | A lost GLYPH is a revocation procedure | The public keys on each platform are the list. `gk` prints it and the removal URLs |
+| S8 | Attacker tests | A flipped bit is refused; a wrong password is refused; no private key appears in the GLYPH bytes; two GLYPHs of the same user differ (fresh nonce) |
+
+**Before you merge.** You can answer yes to S1 to S8, and to this: *if my GLYPH
+file were stolen tomorrow, would the password hold?* If not, change the password,
+not the code.
+
+---
+
 ## 1. What exists
 
 ### sshKeyGen (this repository)
@@ -96,13 +142,13 @@ kg.uid                                                          # str, same as a
 key = kg.ssh_key("github", "laptop", "pro")                     # SshKey-shaped, in memory
 kg.write(key, ssh_dir="~/.ssh")                                 # file + permissions + config snippet
 kg.load_into_agent(key)                                         # no file needed
-kg.glyph_add(key)                                               # seal into the GLYPH, atCGS-compatible
+kg.glyph_add(key)                                               # seal into the GLYPH (the primary store)
 ```
 
 | Mode | What happens | Needs on a new machine |
 |---|---|---|
-| **random** (default) | A fresh Ed25519 key. The key file is encrypted with the passphrase `HKDF(IDSEED, "gk/passphrase/v1")` | login and password |
-| **derive** (opt in, `--derive`) | The key *is* `HKDF(IDSEED, "gk/ssh/v1/<platform>/<host>/<profile>/<n>")`; `n` is a counter that gives a new key when raised | login and password only; no file travels |
+| **GLYPH** (the only mode in 0.2.0) | A fresh random Ed25519 key, sealed in the GLYPH. `gk load` puts it in a private ssh-agent with nothing on disk; `gk export` writes `~/.ssh/<key>` encrypted with the passphrase `HKDF(IDSEED, "gk/passphrase/v1")` | login, password and the GLYPH file (8 KB, copy it) |
+| **derive** (deferred, see D3) | The key *is* `HKDF(IDSEED, "gk/ssh/v1/<platform>/<host>/<profile>/<n>")` | login and password only |
 
 Key naming, the platform table (with the missing codeberg snippet and URL),
 the overwrite guard and permissions (700/600/644) carry over from `genkey.sh`.
@@ -134,20 +180,14 @@ Never by putting the passphrase on the `ssh-keygen` command line (visible in `ps
 | **In Python** (recommended) | `cryptography` writes the OpenSSH key, encrypted. Adds `bcrypt` as a dependency; confirm in WP-K4 that the installed `cryptography` version needs it. Also the only route that works the same on Windows |
 | `ssh-keygen` through `SSH_ASKPASS` | Keeps OpenSSH as the only crypto, but needs a helper script and breaks on Windows |
 
-### D3. Is *derive* mode allowed, and is it the default?
+### D3. Is *derive* mode allowed?
 
-In derive mode the ssh public key — which is public on GitHub — is also a check
-on the password: anyone can test guesses against it offline, at the Argon2id
-cost. atCGS already accepts this for its identity (the UID sits in a journal),
-so the trade is the same, but here it is the user's login on a public
-platform. Mitigation: the `real` profile only, and a refusal below a minimum
-password length (suggest 16 characters).
-
-| Option | What happens |
-|---|---|
-| **Both modes, random is the default** (recommended) | Safe by default; `--derive` is the "random machine, nothing to carry" mode, chosen knowingly |
-| Derive only | Simplest story, weakest if a password is guessable |
-| Random only | No offline-guess risk from the public key; a new machine needs the GLYPH file or a new key |
+**Decided on 2026-11-05: no, not in 0.2.0. The GLYPH is the default and only mode.**
+In derive mode the ssh public key, which is public on GitHub, is also a check on
+the password: anyone can test guesses against it offline. atCGS accepts that for
+its identity (the UID sits in a journal); for ssh keys on a public platform it is
+a worse trade. Reopen only with the S3 password policy enforced and your explicit
+sign-off, and a note here saying why.
 
 ### D4. Where does the derivation live?
 
@@ -175,11 +215,11 @@ keep the command `gk`.
 | **WP-K1** | — | this ticket | D1–D6 recorded |
 | **WP-K2** | — | `pixi.toml`, `pyproject.toml`, `ruff.toml`, `src/gk/` | Skeleton to the atCGS standard: Python 3.11, `cryptography>=44`, platforms linux-64/win-64/osx-arm64, `pixi run test` and `pixi run lint`. Version `0.2.0`, in one place, equal to `gk.__version__` |
 | **WP-K3** | WP-K2 | `src/gk/keygen.py` | `KeyGen`: naming, platform table (with codeberg), overwrite guard, permissions, config snippet |
-| **WP-K4** | WP-K1, WP-K3 | `src/gk/keygen.py` | `derive` (C1, C2), HKDF purposes (C3), the two modes, encrypted key file (D2), `load_into_agent` |
+| **WP-K4** | WP-K1, WP-K3 | `src/gk/keygen.py` | `derive` (C1, C2), HKDF purposes (C3), password policy (S3), encrypted key export (D2), `load_into_agent`. Spike first: confirm `ssh-add -` reads a key from stdin on the three platforms (S4) |
 | **WP-K5** | WP-K4 | `src/gk/keygen.py`, `tests/vectors.toml` | `SshKey`-shaped output (C4) and the shared test-vector file (C6) |
-| **WP-K6** | WP-K4 | `src/gk/keygen.py` | `glyph_add`: seal keys into a GLYPH that atCGS opens. Needs only the `CGSG` layout from atCGS's README § 6 |
+| **WP-K6** | WP-K4 | `src/gk/keygen.py` | The GLYPH as the primary store (S1, S5): seal, open, add, `gk load`, `gk export`. Needs only the `CGSG` layout from atCGS's README § 6 |
 | **WP-K7** | WP-K3 | `src/gk/cli.py` | Thin `gk` command; the secret comes from `getpass`, an env var or a file descriptor, never an argument; empty is an error |
-| **WP-K8** | WP-K4 to WP-K7 | `tests/` | In a temporary `$HOME` and a private ssh-agent, so the suite never touches the real one: naming, no overwrite, modes, key is encrypted, same vector gives the same UID, derive mode is repeatable, the secret is in no argv |
+| **WP-K8** | WP-K4 to WP-K7 | `tests/` | In a temporary `$HOME` and a private ssh-agent, so the suite never touches the real one: naming, no overwrite, modes, key is encrypted, same vector gives the same UID, the S8 attacker cases, the secret is in no argv |
 | **WP-K9** | WP-K7 | `README.md`, `docs/`, `CHANGELOG.md` | README ≤ 100 lines, a "new machine" tutorial, a short compatibility note linking atCGS |
 | **WP-K10** | WP-K7, D6 | `genkey.sh` | The shim or its removal |
 | **WP-K11** | WP-K8 | `.github/workflows/` | CI on the three Pixi platforms |
@@ -192,10 +232,12 @@ keep the command `gk`.
   passphrase and succeeds with the derived one.
 - The same login and password give the same UID in `gk` and in atCGS, checked
   against `tests/vectors.toml` in both repositories.
-- With `--derive`, two machines given the same login, password, platform, host,
-  profile and counter produce byte-identical keys; changing the counter changes the key.
 - A GLYPH written by `gk` opens in atCGS (`atcgs.glyph.open_glyph`) and the keys
-  match.
+  match; a GLYPH written by atCGS opens in `gk`.
+- `gk load` leaves no private key on disk (checked by listing `$HOME` before and
+  after) and the agent holds the key.
+- Security rules S1 to S8 each have a test or a documented check, and the
+  question "if my GLYPH were stolen, would the password hold?" is answered in the PR.
 - The secret appears in no process argument list and no log.
 - `from gk import KeyGen` works in a clean environment, and every method in §3
   runs with no terminal.
