@@ -1,254 +1,85 @@
 # sshKeyGen
-automation of ssh key generation with associated hostname platform status and email
 
-# register on a git platform
+*Created: 2026-10-30*
 
-## Register SSH key
+One command makes a named SSH key for a Git platform, loads it into your agent,
+and tells you where to register it.
 
-Generate key:
-
-```bash
-./genkey.sh
+```mermaid
+flowchart LR
+    A["./genkey.sh<br/>email platform host profile"] --> B["~/.ssh/id_ed25519_…<br/>key pair, agent-loaded"]
+    B --> C["paste the public key<br/>on the platform"]
+    C --> D["ssh -T git@…<br/>works"]
 ```
 
-List keys:
+## 1. Make a key
+
+Needs Bash and OpenSSH. Clone, then run from the repository root:
 
 ```bash
-ls -al ~/.ssh
+./genkey.sh EMAIL [PLATFORM] [HOSTNAME] [PROFILE]
 ```
 
-Display public key:
+| Argument | Meaning | Example |
+|---|---|---|
+| `EMAIL` | required; written in the key as its comment | `me@x.org` |
+| `PLATFORM` | `github`, `gitlab` or `codeberg`; leave empty for a generic key | `github` |
+| `HOSTNAME` | the machine this key lives on | `laptop` |
+| `PROFILE` | which identity: `perso`, `pro`, `admin`… | `pro` |
 
-```bash
-cat ~/.ssh/<key>.pub
-```
-
-Never share the private key.
-
----
-
-## GitHub
-
-Add key:
+The key name is built from what you give:
 
 ```text
-GitHub -> Settings -> SSH and GPG keys -> New SSH key
+./genkey.sh me@x.org github laptop pro   ->  ~/.ssh/id_ed25519_github_laptop_pro
+./genkey.sh me@x.org                     ->  ~/.ssh/id_ed25519
 ```
 
-Paste:
+Choose a passphrase when `ssh-keygen` asks. The script never overwrites an
+existing key; it stops instead.
 
-```text
-~/.ssh/<key>.pub
-```
+## 2. Tutorial: first push to GitHub
 
-Test:
+1. Make the key: `./genkey.sh me@x.org github laptop pro`
+2. Copy the public key the script prints (it is also in `~/.ssh/<key>.pub`).
+3. Register it: GitHub → Settings → SSH and GPG keys → New SSH key.
+4. Append the printed `Host github.com` block to `~/.ssh/config`.
+5. Test: `ssh -T git@github.com` should answer `Hi <user>! You've successfully authenticated`.
+6. Use SSH remotes: `git clone git@github.com:<account>/<repo>.git`
 
-```bash
-ssh -T git@github.com
-```
+GitLab is the same, with `https://gitlab.com/-/user_settings/ssh_keys` and
+`ssh -T git@gitlab.com`.
 
-Expected:
+## 3. Good to know
 
-```text
-Hi <user>! You've successfully authenticated...
-```
+- **Codeberg** is accepted, but the script prints a generic config block and no
+  registration link. Use `Host codeberg.org` and register at Codeberg → Settings → SSH keys.
+- **One key per platform, machine and profile.** `IdentitiesOnly yes` in the config
+  stops the wrong key being offered.
+- **Never share the private key** (the file without `.pub`).
+- Wrong key or "repository not found": see the [troubleshooting guide](docs/ssh-git-guide.md#common-failures).
 
----
+## 4. Where to go next
 
-## GitLab
+- [docs/ssh-git-guide.md](docs/ssh-git-guide.md) — config, agent, HTTPS → SSH, clone, push, failures.
+- Planned: a Python package `gk` with a class API and a passphrase derived from a declared secret
+  ([issue #1](https://github.com/flipoyo/sshKeyGen/issues/1)). Not implemented yet.
 
-Add key:
+## Authorship
 
-```text
-GitLab -> Preferences -> SSH Keys
-```
+- AUTH: Nicolas Flipo
 
-Paste:
+## LLM assistance
 
-```text
-~/.ssh/<key>.pub
-```
+Parts of this project were written with the help of large language models,
+used as a paid service under the author's direction. They are acknowledged
+here rather than credited as co-authors on commits, merges or pull requests.
 
-Test:
+Main assistance:
+- **Claude** (Anthropic) — Claude Code with Claude Sonnet 5.5
 
-```bash
-ssh -T git@gitlab.com
-```
+Responsibility for everything in this repository rests under the license terms.
 
-Expected:
+## License
 
-```text
-Welcome to GitLab, @<user>!
-```
-
----
-
-## SSH config
-
-Create:
-
-```bash
-nano ~/.ssh/config
-```
-
-GitHub:
-
-```sshconfig
-Host github.com
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/<github_key>
-  IdentitiesOnly yes
-```
-
-GitLab:
-
-```sshconfig
-Host gitlab.com
-  HostName gitlab.com
-  User git
-  IdentityFile ~/.ssh/<gitlab_key>
-  IdentitiesOnly yes
-```
-
-Permissions:
-
-```bash
-chmod 700 ~/.ssh
-chmod 600 ~/.ssh/config
-chmod 600 ~/.ssh/<key>
-chmod 644 ~/.ssh/<key>.pub
-```
-
----
-
-## SSH agent
-
-Start:
-
-```bash
-eval "$(ssh-agent -s)"
-```
-
-Clear agent:
-
-```bash
-ssh-add -D
-```
-
-Add key:
-
-```bash
-ssh-add ~/.ssh/<key>
-```
-
-List loaded keys:
-
-```bash
-ssh-add -l
-```
-
-Verbose debug:
-
-```bash
-ssh -vT git@github.com
-```
-
----
-
-## Convert existing repo from HTTPS to SSH
-
-Check remote:
-
-```bash
-git remote -v
-```
-
-GitHub:
-
-```bash
-git remote set-url origin git@github.com:<account>/<repo>.git
-```
-
-GitLab:
-
-```bash
-git remote set-url origin git@gitlab.com:<group>/<repo>.git
-```
-
-Verify:
-
-```bash
-git remote -v
-```
-
----
-
-## Clone with SSH
-
-GitHub:
-
-```bash
-git clone git@github.com:<account>/<repo>.git
-```
-
-GitLab:
-
-```bash
-git clone git@gitlab.com:<group>/<repo>.git
-```
-
----
-
-## Push
-
-```bash
-git push origin main
-```
-
-or:
-
-```bash
-git push -u origin <branch>
-```
-
----
-
-## Git identity
-
-```bash
-git config --global user.name "<name>"
-git config --global user.email "<email>"
-```
-
-Not related to SSH authentication.
-
----
-
-## Common failures
-
-Wrong key used:
-
-```bash
-ssh-add -D
-ssh-add ~/.ssh/<key>
-```
-
-Wrong remote:
-
-```bash
-git remote -v
-```
-
-Repo not found:
-
-- wrong remote
-- wrong account
-- no repo access
-- wrong SSH key
-
-Debug:
-
-```bash
-ssh -vT git@github.com
-```
+Distributed under the [MIT License](LICENSE): free to use, modify and
+redistribute, provided as is, without warranty or liability.
