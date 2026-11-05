@@ -2,7 +2,7 @@
 
 *Created: 2026-11-05*
 
-*Branch: main*
+*Branch: 1-gk*
 
 *Source: GitHub issue [flipoyo/sshKeyGen#1](https://github.com/flipoyo/sshKeyGen/issues/1) — "ergonomy and security - KeyGen Python Package"*
 
