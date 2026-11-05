@@ -1,4 +1,4 @@
-# sshKeyGen
+# sshKeyGen v0.1.0
 
 *Created: 2026-10-30*
 
@@ -33,6 +33,9 @@ The key name is built from what you give:
 ./genkey.sh me@x.org github laptop pro   ->  ~/.ssh/id_ed25519_github_laptop_pro
 ./genkey.sh me@x.org                     ->  ~/.ssh/id_ed25519
 ```
+
+Check the version with `./genkey.sh --version`. Versions follow
+[Semantic Versioning](https://semver.org); the number lives in `genkey.sh` and the README title.
 
 Choose a passphrase when `ssh-keygen` asks. The script never overwrites an
 existing key; it stops instead.
