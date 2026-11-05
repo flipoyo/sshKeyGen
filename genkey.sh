@@ -145,6 +145,13 @@
 
 set -e
 
+VERSION="0.1.0"
+
+if [[ "${1:-}" == "--version" ]]; then
+    echo "sshKeyGen $VERSION"
+    exit 0
+fi
+
 EMAIL="${1:-}"
 PLATFORM="${2:-}"
 HOSTNAME_ARG="${3:-}"
